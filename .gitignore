@@ -1,0 +1,52 @@
+# ============================================
+# image-upscaler：Python + FastAPI 本地應用
+# ============================================
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+.eggs/
+*.egg
+*.egg-info/
+dist/
+build/
+
+# 虛擬環境與環境變數
+.env
+.env.*
+!.env.example
+
+# 使用者上傳與程式產生的檔案（勿提交）
+uploads/
+outputs/
+temp_frames/
+# 模型權重通常很大，需另外下載，不進 repo
+weights/
+
+# 執行時／本機資料（可選，若不想提交可取消註解）
+# history.json
+
+# 日誌與快取
+*.log
+.cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 作業系統
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# 除錯與暫存
+*.tmp
+*.temp
+*.swp
+*.swo

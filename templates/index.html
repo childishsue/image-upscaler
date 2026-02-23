@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- 安全性：防止被嵌入 iframe (防止 Clickjacking 點擊劫持攻擊) -->
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <!-- 安全性：禁止瀏覽器自動推測 MIME 類型 (防止 MIME Sniffing 攻擊) -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <title>AI 超解析度工具 - 圖片 & 影片提升至 2K / 4K</title>
+    <!-- 字型載入策略 (離線可用) -->
+    <link rel="stylesheet" href="/static/css/fonts.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- 導航列 -->
+    <nav class="navbar">
+        <div class="nav-brand">
+            <span class="material-symbols-outlined">auto_awesome</span>
+            <span class="brand-text">AI Upscaler</span>
+        </div>
+        <div class="nav-info">
+            <span class="device-badge" id="deviceBadge">
+                <span class="material-symbols-outlined">memory</span>
+                <span>{{ device }}</span>
+            </span>
+        </div>
+    </nav>
+
+    <!-- 伺服器狀態提示列 -->
+    <div class="server-status-bar" id="serverStatusBar" style="display: none;">
+        <span class="material-symbols-outlined">info</span>
+        <span id="serverStatusText"></span>
+    </div>
+
+    <!-- 主區域 -->
+    <main class="main-container">
+        <!-- Hero -->
+        <section class="hero">
+            <h1>AI 超解析度提升</h1>
+            <p class="hero-subtitle">使用 Real-ESRGAN 深度學習模型，輕鬆將<strong>圖片</strong>或<strong>影片</strong>提升至高解析度</p>
+        </section>
+
+        <!-- ===== 頁籤切換 ===== -->
+        <div class="tab-bar">
+            <button class="tab-btn active" data-tab="image">
+                <span class="material-symbols-outlined">image</span>
+                <span>圖片放大</span>
+            </button>
+            <button class="tab-btn" data-tab="video">
+                <span class="material-symbols-outlined">movie</span>
+                <span>影片放大</span>
+            </button>
+        </div>
+
+        <!-- ====================================================================
+             圖片頁籤內容
+        ==================================================================== -->
+        <div class="tab-content active" id="tabImage">
+
+            <!-- 圖片上傳區域 -->
+            <section class="upload-section" id="uploadSection">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">
+                        <span class="material-symbols-outlined">cloud_upload</span>
+                    </div>
+                    <h2>拖拽圖片到這裡</h2>
+                    <p>或點擊選擇檔案（支援多選）</p>
+                    <div class="upload-info">
+                        <span>支援 JPG、PNG、WebP、BMP、TIFF</span>
+                        <span>單檔最大 20MB</span>
+                        <span>批量最多 20 張</span>
+                    </div>
+                    <input type="file" id="fileInput" accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif" multiple hidden>
+                </div>
+
+                <!-- 檔案清單 & 選項面板 -->
+                <div class="options-panel" id="optionsPanel" style="display: none;">
+                    <div class="file-list-container">
+                        <div class="file-list-header">
+                            <h3>
+                                <span class="material-symbols-outlined">photo_library</span>
+                                已選擇 <span id="fileCount">0</span> 張圖片
+                            </h3>
+                            <button class="btn-text" id="btnAddMore">
+                                <span class="material-symbols-outlined">add_photo_alternate</span>
+                                繼續新增
+                            </button>
+                        </div>
+                        <div class="file-list" id="fileList"></div>
+                        <button class="btn-text btn-clear-all" id="btnClearAll">
+                            <span class="material-symbols-outlined">delete_sweep</span>
+                            清除全部
+                        </button>
+                    </div>
+
+                    <!-- 圖片解析度選擇 -->
+                    <div class="scale-options">
+                        <h3>選擇目標解析度</h3>
+                        <div class="scale-cards">
+                            <label class="scale-card active" data-target="2k">
+                                <input type="radio" name="target" value="2k" checked>
+                                <div class="scale-card-content">
+                                    <span class="scale-label">2K</span>
+                                    <span class="scale-detail">2560 × 1440</span>
+                                    <span class="scale-desc">高清品質，處理速度較快</span>
+                                </div>
+                                <span class="check-icon material-symbols-outlined">check_circle</span>
+                            </label>
+                            <label class="scale-card" data-target="4k">
+                                <input type="radio" name="target" value="4k">
+                                <div class="scale-card-content">
+                                    <span class="scale-label">4K</span>
+                                    <span class="scale-detail">3840 × 2160</span>
+                                    <span class="scale-desc">超高清品質，極致細節</span>
+                                </div>
+                                <span class="check-icon material-symbols-outlined">check_circle</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <button class="btn-primary" id="btnUpscale">
+                        <span class="material-symbols-outlined">rocket_launch</span>
+                        <span id="btnUpscaleText">開始提升解析度</span>
+                    </button>
+                </div>
+            </section>
+        </div>
+
+        <!-- ====================================================================
+             影片頁籤內容
+        ==================================================================== -->
+        <div class="tab-content" id="tabVideo">
+
+            {% if not ffmpeg_ok %}
+            <!-- FFmpeg 未安裝警告 -->
+            <section class="ffmpeg-warning">
+                <div class="warning-card">
+                    <span class="material-symbols-outlined">warning</span>
+                    <h3>需要安裝 FFmpeg</h3>
+                    <p>影片處理功能需要 FFmpeg，請先安裝後重啟程式。</p>
+                    <div class="ffmpeg-steps">
+                        <p><strong>安裝方式 (任選一種)：</strong></p>
+                        <ol>
+                            <li>Windows: <code>winget install Gyan.FFmpeg</code></li>
+                            <li>或從 <a href="https://ffmpeg.org/download.html" target="_blank">ffmpeg.org</a> 下載</li>
+                            <li>安裝後重新啟動 start.bat</li>
+                        </ol>
+                    </div>
+                </div>
+            </section>
+            {% else %}
+
+            <!-- 影片上傳區域 -->
+            <section class="upload-section" id="videoUploadSection">
+                <div class="upload-area" id="videoUploadArea">
+                    <div class="upload-icon">
+                        <span class="material-symbols-outlined">video_call</span>
+                    </div>
+                    <h2>拖拽影片到這裡</h2>
+                    <p>或點擊選擇影片檔案（支援多選）</p>
+                    <div class="upload-info">
+                        <span>支援 MP4、MOV、AVI、MKV、WebM</span>
+                        <span>單檔最大 500MB</span>
+                        <span>批量最多 10 部</span>
+                    </div>
+                    <input type="file" id="videoFileInput" accept=".mp4,.mov,.avi,.mkv,.webm,.flv,.wmv" multiple hidden>
+                </div>
+
+                <!-- 影片選項面板 -->
+                <div class="options-panel" id="videoOptionsPanel" style="display: none;">
+                    <div class="file-list-container">
+                        <div class="file-list-header">
+                            <h3>
+                                <span class="material-symbols-outlined">movie</span>
+                                已選擇 <span id="videoFileCount">0</span> 部影片
+                            </h3>
+                            <button class="btn-text" id="btnVideoAddMore">
+                                <span class="material-symbols-outlined">video_call</span>
+                                繼續新增
+                            </button>
+                        </div>
+                        <div class="file-list" id="videoFileList"></div>
+                        <button class="btn-text btn-clear-all" id="btnVideoClearAll">
+                            <span class="material-symbols-outlined">delete_sweep</span>
+                            清除全部
+                        </button>
+                    </div>
+
+                    <!-- 影片解析度選擇 (720P / 1080P / 2K / 4K) -->
+                    <div class="scale-options">
+                        <h3>選擇目標解析度</h3>
+                        <div class="scale-cards scale-cards-4">
+                            <label class="scale-card" data-target="720p">
+                                <input type="radio" name="videoTarget" value="720p">
+                                <div class="scale-card-content">
+                                    <span class="scale-label">720P</span>
+                                    <span class="scale-detail">1280 × 720</span>
+                                    <span class="scale-desc">HD 標準高清</span>
+                                </div>
+                                <span class="check-icon material-symbols-outlined">check_circle</span>
+                            </label>
+                            <label class="scale-card active" data-target="1080p">
+                                <input type="radio" name="videoTarget" value="1080p" checked>
+                                <div class="scale-card-content">
+                                    <span class="scale-label">1080P</span>
+                                    <span class="scale-detail">1920 × 1080</span>
+                                    <span class="scale-desc">Full HD 全高清</span>
+                                </div>
+                                <span class="check-icon material-symbols-outlined">check_circle</span>
+                            </label>
+                            <label class="scale-card" data-target="2k">
+                                <input type="radio" name="videoTarget" value="2k">
+                                <div class="scale-card-content">
+                                    <span class="scale-label">2K</span>
+                                    <span class="scale-detail">2560 × 1440</span>
+                                    <span class="scale-desc">QHD 超高清</span>
+                                </div>
+                                <span class="check-icon material-symbols-outlined">check_circle</span>
+                            </label>
+                            <label class="scale-card" data-target="4k">
+                                <input type="radio" name="videoTarget" value="4k">
+                                <div class="scale-card-content">
+                                    <span class="scale-label">4K</span>
+                                    <span class="scale-detail">3840 × 2160</span>
+                                    <span class="scale-desc">Ultra HD 極致畫質</span>
+                                </div>
+                                <span class="check-icon material-symbols-outlined">check_circle</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="video-info-note">
+                        <span class="material-symbols-outlined">schedule</span>
+                        <span>影片處理為逐幀 AI 運算，所需時間依影片長度與解析度而定。處理期間請耐心等候。</span>
+                    </div>
+
+                    <button class="btn-primary" id="btnVideoUpscale">
+                        <span class="material-symbols-outlined">rocket_launch</span>
+                        <span id="btnVideoUpscaleText">開始提升影片解析度</span>
+                    </button>
+                </div>
+            </section>
+
+            {% endif %}
+        </div>
+
+        <!-- ===== 批量處理進度 (圖片 & 影片共用) ===== -->
+        <section class="batch-progress-section" id="batchProgressSection" style="display: none;">
+            <div class="batch-progress-card">
+                <div class="progress-header">
+                    <span class="material-symbols-outlined spinning">autorenew</span>
+                    <h3 id="batchProgressTitle">處理中...</h3>
+                </div>
+                <div class="batch-overall">
+                    <div class="progress-bar-wrapper">
+                        <div class="progress-bar" id="batchProgressBar" style="width: 0%"></div>
+                    </div>
+                    <div class="batch-stats">
+                        <span id="batchProgressMessage">準備中...</span>
+                        <span id="batchProgressCount">0 / 0</span>
+                    </div>
+                </div>
+                <div class="batch-item-list" id="batchItemList"></div>
+            </div>
+        </section>
+
+        <!-- ===== 單張圖片結果 ===== -->
+        <section class="result-section" id="resultSection" style="display: none;">
+            <div class="result-header">
+                <span class="material-symbols-outlined">check_circle</span>
+                <h2>處理完成！</h2>
+            </div>
+            <div class="comparison-container" id="comparisonContainer">
+                <div class="comparison-labels">
+                    <span class="label-original">原始圖片</span>
+                    <span class="label-upscaled">提升後</span>
+                </div>
+                <div class="comparison-slider" id="comparisonSlider">
+                    <div class="comparison-image original">
+                        <img id="resultOriginal" alt="原始圖片">
+                    </div>
+                    <div class="comparison-image upscaled">
+                        <img id="resultUpscaled" alt="提升後">
+                    </div>
+                    <div class="slider-handle" id="sliderHandle">
+                        <div class="slider-line"></div>
+                        <div class="slider-button">
+                            <span class="material-symbols-outlined">drag_indicator</span>
+                        </div>
+                        <div class="slider-line"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="result-info-cards">
+                <div class="info-card">
+                    <span class="material-symbols-outlined">photo_size_select_small</span>
+                    <div><span class="info-label">原始尺寸</span><span class="info-value" id="originalSize">-</span></div>
+                </div>
+                <div class="info-card arrow"><span class="material-symbols-outlined">arrow_forward</span></div>
+                <div class="info-card highlight">
+                    <span class="material-symbols-outlined">photo_size_select_large</span>
+                    <div><span class="info-label">提升後尺寸</span><span class="info-value" id="outputSize">-</span></div>
+                </div>
+                <div class="info-card">
+                    <span class="material-symbols-outlined">hard_drive</span>
+                    <div><span class="info-label">檔案大小</span><span class="info-value" id="fileSize">-</span></div>
+                </div>
+            </div>
+            <div class="result-actions">
+                <button class="btn-primary btn-download" id="btnDownload">
+                    <span class="material-symbols-outlined">download</span>
+                    <span>下載高解析度圖片</span>
+                </button>
+                <button class="btn-secondary" id="btnNewUpload">
+                    <span class="material-symbols-outlined">add_photo_alternate</span>
+                    <span>處理其他圖片</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- ===== 批量圖片結果 ===== -->
+        <section class="batch-result-section" id="batchResultSection" style="display: none;">
+            <div class="result-header">
+                <span class="material-symbols-outlined">check_circle</span>
+                <h2 id="batchResultTitle">批量處理完成！</h2>
+            </div>
+            <div class="batch-result-list" id="batchResultList"></div>
+            <div class="result-actions">
+                <button class="btn-primary btn-download" id="btnBatchDownload">
+                    <span class="material-symbols-outlined">folder_zip</span>
+                    <span>一鍵下載全部 (ZIP)</span>
+                </button>
+                <button class="btn-secondary" id="btnBatchNewUpload">
+                    <span class="material-symbols-outlined">add_photo_alternate</span>
+                    <span>處理其他圖片</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- ===== 影片結果 (批量) ===== -->
+        <section class="video-result-section" id="videoResultSection" style="display: none;">
+            <div class="result-header">
+                <span class="material-symbols-outlined">check_circle</span>
+                <h2 id="videoResultTitle">影片處理完成！</h2>
+            </div>
+            <div class="batch-result-list" id="videoResultList"></div>
+            <div class="result-actions">
+                <button class="btn-primary btn-download" id="btnVideoBatchDownload">
+                    <span class="material-symbols-outlined">folder_zip</span>
+                    <span>一鍵下載全部 (ZIP)</span>
+                </button>
+                <button class="btn-secondary" id="btnVideoNewUpload">
+                    <span class="material-symbols-outlined">movie</span>
+                    <span>處理其他影片</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- ===== 錯誤訊息 ===== -->
+        <section class="error-section" id="errorSection" style="display: none;">
+            <div class="error-card">
+                <span class="material-symbols-outlined">error</span>
+                <h3>處理失敗</h3>
+                <p id="errorMessage"></p>
+                <button class="btn-secondary" id="btnRetry">
+                    <span class="material-symbols-outlined">refresh</span>
+                    <span>重新嘗試</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- ===== 歷史任務紀錄 ===== -->
+        <section class="history-section" id="historySection" style="display: none;">
+            <div class="history-card">
+                <div class="history-header">
+                    <div class="history-title">
+                        <span class="material-symbols-outlined">history</span>
+                        <h3>最近完成的任務</h3>
+                    </div>
+                    <button class="btn-cleanup" id="btnCleanup" title="清除所有暫存檔案（uploads、outputs、歷史紀錄）">
+                        <span class="material-symbols-outlined">cleaning_services</span>
+                        <span>清除所有暫存檔案</span>
+                    </button>
+                </div>
+                <div class="history-list" id="historyList"></div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 隱藏的新增檔案 input -->
+    <input type="file" id="fileInputAdd" accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif" multiple hidden>
+    <input type="file" id="videoFileInputAdd" accept=".mp4,.mov,.avi,.mkv,.webm,.flv,.wmv" multiple hidden>
+
+    <!-- 頁尾 -->
+    <footer class="footer">
+        <div class="footer-content">
+            <p>Powered by <strong>Real-ESRGAN</strong> + <strong>FFmpeg</strong> | 所有處理均在本地完成，不會上傳至第三方伺服器</p>
+            <p class="footer-note">圖片: JPG, PNG, WebP, BMP, TIFF (≤20MB, 批量≤20張) | 影片: MP4, MOV, AVI, MKV, WebM (≤500MB, 批量≤10部)</p>
+        </div>
+    </footer>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>

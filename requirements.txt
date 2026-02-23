@@ -1,0 +1,25 @@
+# AI Image Upscaler - Dependencies
+# 建議使用 Python 3.8+
+
+# Web 框架
+fastapi
+uvicorn[standard]
+python-multipart
+jinja2
+
+# AI 模型 - Real-ESRGAN
+realesrgan
+basicsr>=1.4.2
+gfpgan
+
+# 圖像處理
+opencv-python
+numpy
+
+# PyTorch (根據您的系統選擇合適版本)
+# GPU 版本 (NVIDIA CUDA):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# CPU 版本:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision

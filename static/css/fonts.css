@@ -1,0 +1,84 @@
+/* =============================================================================
+ *  本地字型定義 (離線可用)
+ *
+ *  策略：
+ *    1. Material Symbols Outlined — 圖示字型
+ *       → 直接從本地 /static/fonts/ 載入 (已內建)
+ *       → 這是最關鍵的字型，離線時沒有它所有圖示會變成文字
+ *
+ *    2. Noto Sans TC — 中文顯示字型
+ *       → 優先使用本機已安裝的 Noto Sans TC (local)
+ *       → 退而求其次使用 Windows 微軟正黑體 (Microsoft JhengHei)
+ *       → 再退使用 macOS 蘋方 (PingFang TC)
+ *       → 最後使用系統預設 sans-serif
+ *       → 備註：Noto Sans TC 完整字型約 40MB+，不適合內建
+ *                但上述退路字型在各平台都能完美顯示繁體中文
+ * ============================================================================= */
+
+/* ===== Material Symbols Outlined (圖示字型 — 本地內建) ===== */
+@font-face {
+    font-family: 'Material Symbols Outlined';
+    font-style: normal;
+    font-weight: 400;
+    /* 本地檔案優先，確保離線時圖示正常顯示 */
+    src: url('/static/fonts/MaterialSymbolsOutlined.woff2') format('woff2');
+    font-display: swap;
+}
+
+.material-symbols-outlined {
+    font-family: 'Material Symbols Outlined';
+    font-weight: normal;
+    font-style: normal;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ===== Noto Sans TC (中文字型 — 多層退路) ===== */
+/* 嘗試使用本機已安裝的 Noto Sans TC */
+@font-face {
+    font-family: 'Noto Sans TC';
+    font-style: normal;
+    font-weight: 300;
+    src: local('Noto Sans TC Light'), local('NotoSansTC-Light');
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Noto Sans TC';
+    font-style: normal;
+    font-weight: 400;
+    src: local('Noto Sans TC Regular'), local('NotoSansTC-Regular'), local('Noto Sans TC');
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Noto Sans TC';
+    font-style: normal;
+    font-weight: 500;
+    src: local('Noto Sans TC Medium'), local('NotoSansTC-Medium');
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Noto Sans TC';
+    font-style: normal;
+    font-weight: 600;
+    src: local('Noto Sans TC SemiBold'), local('NotoSansTC-SemiBold');
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Noto Sans TC';
+    font-style: normal;
+    font-weight: 700;
+    src: local('Noto Sans TC Bold'), local('NotoSansTC-Bold');
+    font-display: swap;
+}
