@@ -8,8 +8,8 @@ python-multipart
 jinja2
 
 # AI 模型 - Real-ESRGAN
+# basicsr 不在這裡列出，由 install_*.bat 透過 install_basicsr.bat 安裝，避免從原始碼建置失敗
 realesrgan
-basicsr>=1.4.2
 gfpgan
 
 # 圖像處理

@@ -157,6 +157,7 @@ image-upscaler/
 ├── start.bat
 ├── install_gpu.bat
 ├── install_cpu.bat
+├── install_basicsr.bat ← basicsr 獨立安裝腳本（由 install_*.bat 自動呼叫）
 ├── README.md
 ├── templates/          ← 整個資料夾
 ├── static/             ← 整個資料夾
@@ -201,6 +202,7 @@ image-upscaler/
 │
 ├── install_gpu.bat            # GPU 版安裝腳本 (PyTorch + CUDA 12.8)
 ├── install_cpu.bat            # CPU 版安裝腳本
+├── install_basicsr.bat        # basicsr 獨立安裝（由 install_*.bat 自動呼叫，減少安裝失敗）
 │
 ├── README.md                  # 本說明文件
 │
@@ -349,6 +351,8 @@ image-upscaler/
 | 記憶體不足 | 程式已使用 tile 模式分塊處理，確保至少 8GB RAM |
 | 模型下載失敗 | 手動下載模型放置於 `weights/` 資料夾（見下方連結） |
 | FFmpeg 未安裝 | 影片功能需要 FFmpeg。Windows 可執行 `winget install Gyan.FFmpeg`，安裝後重新執行 `start.bat` |
+| 安裝時出現 basicsr / KeyError: '__version__' / 「Getting requirements to build wheel ... error」 | 多為 pip 從原始碼建置 basicsr 1.4.2 失敗。本專案安裝腳本已改為先裝 basicsr 預編譯版並鎖定版本，請使用**最新版**的 install_cpu.bat / install_gpu.bat 與 requirements.txt；若仍失敗，再執行一次 install_cpu.bat 或 install_gpu.bat。 |
+| 安裝失敗：未偵測到 Python | 電腦尚未安裝 Python。請先安裝 Python 3.10+：https://www.python.org/downloads/ ，安裝時務必勾選「Add Python to PATH」，再執行 install_cpu.bat 或 install_gpu.bat。 |
 
 模型手動下載連結：
 - [RealESRGAN_x4plus.pth](https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth)
@@ -395,6 +399,22 @@ sys.modules['torchvision.transforms.functional_tensor'] = _fake_module
 這讓 basicsr 的舊 import 路徑可以正常運作，而無需降版或修改第三方套件原始碼。
 
 **相關檔案**：`app.py` 第 26-31 行
+
+---
+
+### 問題 2.1：basicsr 安裝失敗（KeyError: __version__）— 採用約束檔
+
+**狀況**：執行 `install_cpu.bat` 或 `install_gpu.bat` 時，在「安裝其餘套件」階段失敗，錯誤為 `KeyError: '__version__'` 或「Getting requirements to build wheel ... error」。
+
+**原因**：realesrgan 依賴 `basicsr>=1.4.2`，pip 會嘗試安裝 1.4.2；在許多 Windows 環境下 1.4.2 沒有預編譯輪子，pip 改從原始碼建置，basicsr 的 setup 在取得版本時會觸發上述錯誤。basicsr 1.3.3 則常有輪子可裝，且執行時與本專案相容。
+
+**除錯方向（已採用）**：使用 **約束檔**，不讓 pip 升級 basicsr：
+- 先以 `install_basicsr.bat` 安裝 basicsr 1.3.3（輪子或 --no-build-isolation）。
+- 安裝其餘套件時加上 `-c constraints_basicsr.txt`（內容：`basicsr==1.3.3`），避免 pip 為滿足 realesrgan 而拉 1.4.2 並觸發從原始碼建置。
+
+**後續除錯請維持此方向**：若安裝仍失敗，請檢查約束檔是否有被產生與傳入；勿改為 `--no-deps` 除非一併處理 realesrgan 的其他依賴。
+
+**相關檔案**：`install_cpu.bat`、`install_gpu.bat`、`install_basicsr.bat`
 
 ---
 

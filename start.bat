@@ -39,20 +39,21 @@ if not defined PYTHON (
 )
 
 if not exist "venv\Scripts\python.exe" (
-    echo   [1/2] Creating virtual environment...
-    "%PYTHON%" -m venv venv
-    if errorlevel 1 (
-        echo   [ERROR] Failed to create venv
-        pause
-        exit /b 1
-    )
-    set "PYTHON=venv\Scripts\python.exe"
-    echo   [1/2] Done
-    echo   [2/2] Installing dependencies...
-    "venv\Scripts\python.exe" -m pip install --upgrade pip -q
-    "venv\Scripts\python.exe" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128 -q
-    "venv\Scripts\python.exe" -m pip install -r requirements.txt -q
-    echo   [2/2] Done
+    echo   [ERROR] Virtual environment not found.
+    echo   Please run install_gpu.bat or install_cpu.bat first.
+    echo.
+    pause
+    exit /b 1
+)
+
+echo   Checking dependencies...
+"%PYTHON%" -c "import fastapi, uvicorn" 2>nul
+if errorlevel 1 (
+    echo   [ERROR] Dependencies missing or broken.
+    echo   Please run install_gpu.bat or install_cpu.bat first.
+    echo.
+    pause
+    exit /b 1
 )
 
 echo.
@@ -70,9 +71,17 @@ echo.
 "%PYTHON%" app.py
 
 echo.
-echo   ============================================
-echo    Server stopped.
-echo    Run start.bat again to restart.
-echo   ============================================
+if errorlevel 1 (
+    echo   ============================================
+    echo    [ERROR] Program exited with error.
+    echo    Please scroll up to see the error message,
+    echo    take a screenshot, then press any key.
+    echo   ============================================
+) else (
+    echo   ============================================
+    echo    Server stopped.
+    echo    Run start.bat again to restart.
+    echo   ============================================
+)
 echo.
 pause
