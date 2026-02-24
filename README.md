@@ -37,7 +37,7 @@
 ## 二、使用方式
 
 ### 環境需求
-- **Python 3.10+**
+- **Python 3.11 或 3.12**（建議，可減少安裝與執行錯誤；3.10 或 3.14 等可能需額外排查）
 - **建議 8GB+ RAM**
 - **NVIDIA GPU + CUDA**（可選，大幅加速。支援 RTX 50 系列）
 - **FFmpeg**（影片功能需要，圖片功能不需要）
@@ -352,7 +352,8 @@ image-upscaler/
 | 模型下載失敗 | 手動下載模型放置於 `weights/` 資料夾（見下方連結） |
 | FFmpeg 未安裝 | 影片功能需要 FFmpeg。Windows 可執行 `winget install Gyan.FFmpeg`，安裝後重新執行 `start.bat` |
 | 安裝時出現 basicsr / KeyError: '__version__' / 「Getting requirements to build wheel ... error」 | 多為 pip 從原始碼建置 basicsr 1.4.2 失敗。本專案安裝腳本已改為先裝 basicsr 預編譯版並鎖定版本，請使用**最新版**的 install_cpu.bat / install_gpu.bat 與 requirements.txt；若仍失敗，再執行一次 install_cpu.bat 或 install_gpu.bat。 |
-| 安裝失敗：未偵測到 Python | 電腦尚未安裝 Python。請先安裝 Python 3.10+：https://www.python.org/downloads/ ，安裝時務必勾選「Add Python to PATH」，再執行 install_cpu.bat 或 install_gpu.bat。 |
+| 安裝失敗：未偵測到 Python | 電腦尚未安裝 Python。請先安裝 **Python 3.11 或 3.12**：https://www.python.org/downloads/ ，安裝時務必勾選「Add Python to PATH」，再執行 install_cpu.bat 或 install_gpu.bat。 |
+| 安裝成功但 start.bat 出現 ImportError（如 `circular_lowpass_kernel`、`cannot import name ... from basicsr`） | 多為 Python 版本過新或過舊導致 basicsr 與 realesrgan 不相容。請改用 **Python 3.11 或 3.12**，刪除專案目錄下的 `venv` 資料夾後，重新執行 install_cpu.bat 或 install_gpu.bat。 |
 
 模型手動下載連結：
 - [RealESRGAN_x4plus.pth](https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth)

@@ -9,12 +9,13 @@ jinja2
 
 # AI 模型 - Real-ESRGAN
 # basicsr 不在這裡列出，由 install_*.bat 透過 install_basicsr.bat 安裝，避免從原始碼建置失敗
-realesrgan
+# realesrgan 鎖定有輪子的版本（0.2.9），避免 pip 選到 0.2.0/0.2.1 僅有 sdist 而建置失敗（facexlib/git 等）
+realesrgan==0.2.9
 gfpgan
 
-# 圖像處理
+# 圖像處理（numpy 至少 1.22 才有 Python 3.10+ 輪子，避免從原始碼建置與 setuptools 錯誤）
 opencv-python
-numpy
+numpy>=1.22
 
 # PyTorch (根據您的系統選擇合適版本)
 # GPU 版本 (NVIDIA CUDA):

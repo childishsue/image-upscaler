@@ -10,11 +10,18 @@ if not exist "venv\Scripts\python.exe" (
 )
 
 "venv\Scripts\python.exe" -m pip install --upgrade pip setuptools wheel -q
-echo   正在安裝 basicsr（先試預編譯版 1.3.3，再試編譯安裝）...
-"venv\Scripts\python.exe" -m pip install basicsr==1.3.3
+REM realesrgan 需要 basicsr 1.4.x API（如 circular_lowpass_kernel）；優先試 1.4.2，失敗再試 1.3.3
+echo   正在安裝 basicsr（先試 1.4.2 以符合 realesrgan，再試 1.3.3 輪子）...
+"venv\Scripts\python.exe" -m pip install basicsr==1.4.2 --no-build-isolation
 if errorlevel 1 (
-    echo   改試 basicsr（--no-build-isolation）...
-    "venv\Scripts\python.exe" -m pip install basicsr --no-build-isolation
-    if errorlevel 1 exit /b 1
+    echo   改試 basicsr 1.3.3（預編譯輪子）...
+    "venv\Scripts\python.exe" -m pip install basicsr==1.3.3
+    if errorlevel 1 (
+        echo   改試 basicsr（--no-build-isolation）...
+        "venv\Scripts\python.exe" -m pip install basicsr --no-build-isolation
+        if errorlevel 1 exit /b 1
+    )
 )
+REM 寫入已安裝版本，供 install_cpu/gpu.bat 做約束檔
+"venv\Scripts\python.exe" -c "import basicsr; open('basicsr_version.txt','w').write(basicsr.__version__)"
 exit /b 0

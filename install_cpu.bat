@@ -6,6 +6,9 @@ echo   =========================================
 echo     Install CPU version
 echo   =========================================
 echo.
+echo   建議使用 Python 3.11 或 3.12，可減少安裝與執行錯誤。
+echo   若使用 3.10 或較新版本（如 3.14）可能需額外排查。
+echo.
 
 set "PYTHON="
 if exist "venv\Scripts\python.exe" (
@@ -75,19 +78,45 @@ if errorlevel 1 (
     exit /b 1
 )
 
-findstr /C:"basicsr" requirements.txt >nul 2>&1
+REM 只檢查「行首為 basicsr」的套件行，不把註解裡含 basicsr 的當成舊版
+findstr /B /C:"basicsr" requirements.txt >nul 2>&1
 if not errorlevel 1 (
-    echo   [ERROR] requirements.txt 是舊版（內含 basicsr），會導致後續安裝失敗。
+    echo   [ERROR] requirements.txt 為舊版且內含 basicsr 套件，會導致後續安裝失敗。
     echo   請向提供軟體的人索取最新的 requirements.txt 覆蓋此資料夾的檔案。
     echo.
     pause
     exit /b 1
 )
 
-REM 使用不含 torch/torchvision 的清單，避免從 PyPI 覆蓋已安裝的 CPU 版
-REM 約束 basicsr 為已安裝的 1.3.3，避免 pip 為滿足 realesrgan 而從原始碼建置 basicsr 1.4.2（會 KeyError: __version__）
+REM realesrgan / gfpgan 從原始碼建置會失敗；改為只裝輪子 --no-deps。先裝 gfpgan 再裝 facexlib，避免 pip 報「realesrgan 需要 gfpgan 未安裝」
+echo   安裝 realesrgan 0.2.9（輪子）...
+"venv\Scripts\python.exe" -m pip install realesrgan==0.2.9 --no-deps
+if errorlevel 1 (
+    echo   [ERROR] realesrgan 安裝失敗。請檢查網路後再執行一次 install_cpu.bat。
+    pause
+    exit /b 1
+)
+echo   安裝 gfpgan 1.3.8（輪子）...
+"venv\Scripts\python.exe" -m pip install gfpgan==1.3.8 --no-deps
+if errorlevel 1 (
+    echo   [ERROR] gfpgan 安裝失敗。請檢查網路後再執行一次 install_cpu.bat。
+    pause
+    exit /b 1
+)
+echo   安裝 facexlib（gfpgan 執行時需要）...
+"venv\Scripts\python.exe" -m pip install facexlib
+if errorlevel 1 (
+    echo   [WARN] facexlib 安裝失敗，將繼續；若啟動失敗請再執行 install_cpu.bat。
+)
+REM 其餘套件：清單排除 torch、realesrgan、gfpgan，並約束 basicsr 為 install_basicsr 裝的版本
 findstr /V /C:"torch" requirements.txt > requirements_cpu_temp.txt 2>nul
-echo basicsr==1.3.3 > constraints_basicsr.txt 2>nul
+findstr /V /B /C:"realesrgan" requirements_cpu_temp.txt > requirements_cpu_rest.txt 2>nul
+move /y requirements_cpu_rest.txt requirements_cpu_temp.txt >nul 2>&1
+findstr /V /B /C:"gfpgan" requirements_cpu_temp.txt > requirements_cpu_rest.txt 2>nul
+move /y requirements_cpu_rest.txt requirements_cpu_temp.txt >nul 2>&1
+set /p BSRVER=<basicsr_version.txt 2>nul
+if not defined BSRVER set BSRVER=1.3.3
+echo basicsr==%BSRVER% > constraints_basicsr.txt 2>nul
 "venv\Scripts\python.exe" -m pip install -r requirements_cpu_temp.txt -c constraints_basicsr.txt
 if errorlevel 1 (
     del requirements_cpu_temp.txt 2>nul
@@ -101,6 +130,7 @@ if errorlevel 1 (
 )
 del requirements_cpu_temp.txt 2>nul
 del constraints_basicsr.txt 2>nul
+del basicsr_version.txt 2>nul
 
 echo.
 echo   =========================================
