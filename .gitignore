@@ -29,8 +29,8 @@ temp_frames/
 # 模型權重通常很大，需另外下載，不進 repo
 weights/
 
-# 執行時／本機資料（可選，若不想提交可取消註解）
-# history.json
+# 執行時／個人使用隱私資料（程式會自動建立，勿提交）
+history.json
 
 # 日誌與快取
 *.log
