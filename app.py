@@ -277,6 +277,14 @@ VIDEO_RESOLUTIONS = {
     "4k":    (3840, 2160),
 }
 
+# 圖片解析度對照表（含 800×800、1K、2K、4K）
+IMAGE_RESOLUTIONS = {
+    "800":   (800, 800),
+    "1k":    (1024, 1024),
+    "2k":    (2560, 1440),
+    "4k":    (3840, 2160),
+}
+
 
 def check_ffmpeg():
     """檢查系統是否已安裝 FFmpeg"""
@@ -570,12 +578,9 @@ def calculate_target_scale(width: int, height: int, target: str) -> int:
 
     參數:
         width, height: 原圖寬高 (px)
-        target: "2k" 或 "4k"
+        target: "800" | "1k" | "2k" | "4k"
     """
-    if target == "4k":
-        target_w, target_h = 3840, 2160
-    else:
-        target_w, target_h = 2560, 1440
+    target_w, target_h = IMAGE_RESOLUTIONS.get(target, (2560, 1440))
     scale = max(target_w / width, target_h / height)
     return 2 if scale <= 2 else 4
 
@@ -584,18 +589,18 @@ def make_download_name(original_filename: str, target: str) -> str:
     """
     產生下載用的檔名
 
-    命名格式：原始檔名_2K或4K_日期_時間.副檔名
+    命名格式：原始檔名_解析度標籤_日期_時間.副檔名
     範例：TEST_2K_20260215_2218.bmp
 
     參數:
         original_filename: 使用者上傳時的原始檔名
-        target: "2k" 或 "4k"
+        target: "800" | "1k" | "2k" | "4k"
     """
     from datetime import datetime
-    stem = Path(original_filename).stem     # 取得不含副檔名的檔名，例如 "TEST"
-    ext = Path(original_filename).suffix    # 取得副檔名，例如 ".bmp"
-    tag = target.upper()                    # 轉大寫 "2K" 或 "4K"
-    now = datetime.now().strftime("%Y%m%d_%H%M")  # 格式化當前時間 "20260215_2218"
+    stem = Path(original_filename).stem
+    ext = Path(original_filename).suffix
+    tag = {"1k": "1K", "2k": "2K", "4k": "4K"}.get(target, target)  # 800→"800"
+    now = datetime.now().strftime("%Y%m%d_%H%M")
     return f"{stem}_{tag}_{now}{ext}"
 
 
@@ -646,10 +651,7 @@ def process_image(input_path: str, output_path: str, target: str = "2k", task_id
         tasks_progress[task_id] = {"status": "processing", "progress": 80, "message": "正在調整至目標解析度..."}
 
         # 第四步：若超過目標尺寸，縮小至精確的目標解析度
-        if target == "4k":
-            target_w, target_h = 3840, 2160
-        else:
-            target_w, target_h = 2560, 1440
+        target_w, target_h = IMAGE_RESOLUTIONS.get(target, (2560, 1440))
 
         out_h, out_w = output.shape[:2]
         if out_w > target_w or out_h > target_h:
@@ -1122,8 +1124,8 @@ async def upload_image(background_tasks: BackgroundTasks, file: UploadFile = Fil
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"不支援的檔案格式: {ext}")
 
-    # 安全性：驗證 target 參數只能是 "2k" 或 "4k"
-    if target not in ("2k", "4k"):
+    # 安全性：驗證 target 參數
+    if target not in IMAGE_RESOLUTIONS:
         raise HTTPException(status_code=400, detail="無效的目標解析度")
 
     content = await file.read()
@@ -1163,8 +1165,8 @@ async def batch_upload(background_tasks: BackgroundTasks, files: List[UploadFile
     if len(files) > 20:
         raise HTTPException(status_code=400, detail="一次最多上傳 20 張圖片")
 
-    # 安全性：驗證 target 參數只能是 "2k" 或 "4k"
-    if target not in ("2k", "4k"):
+    # 安全性：驗證 target 參數
+    if target not in IMAGE_RESOLUTIONS:
         raise HTTPException(status_code=400, detail="無效的目標解析度")
 
     batch_id = str(uuid.uuid4())
