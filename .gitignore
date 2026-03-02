@@ -45,6 +45,13 @@ htmlcov/
 Thumbs.db
 Desktop.ini
 
+# 安裝腳本產生的暫存檔（install_cpu.bat / install_gpu.bat）
+requirements_cpu_temp.txt
+requirements_gpu_temp.txt
+requirements_gpu_rest.txt
+constraints_basicsr.txt
+basicsr_version.txt
+
 # 除錯與暫存
 *.tmp
 *.temp
