@@ -57,3 +57,4 @@ basicsr_version.txt
 *.temp
 *.swp
 *.swo
+.git_commit_msg.txt
