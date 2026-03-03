@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- 安全性：防止被嵌入 iframe (防止 Clickjacking 點擊劫持攻擊) -->
-    <meta http-equiv="X-Frame-Options" content="DENY">
+    <!-- X-Frame-Options 需由伺服器 HTTP header 設定，meta 無效已移除 -->
     <!-- 安全性：禁止瀏覽器自動推測 MIME 類型 (防止 MIME Sniffing 攻擊) -->
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <title>AI 超解析度工具 - 圖片 & 影片提升至 2K / 4K</title>
     <!-- 字型載入策略 (離線可用) -->
-    <link rel="stylesheet" href="/static/css/fonts.css">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/fonts.css?v=1">
+    <link rel="stylesheet" href="/static/css/style.css?v=1">
 </head>
 <body>
     <!-- 導航列 -->
@@ -43,20 +42,36 @@
 
         <!-- ===== 頁籤切換 ===== -->
         <div class="tab-bar">
-            <button class="tab-btn active" data-tab="image">
+            <button type="button" class="tab-btn active" data-tab="image">
                 <span class="material-symbols-outlined">image</span>
                 <span>圖片放大</span>
             </button>
-            <button class="tab-btn" data-tab="video">
+            <button type="button" class="tab-btn" data-tab="video">
                 <span class="material-symbols-outlined">movie</span>
                 <span>影片放大</span>
+            </button>
+            <button type="button" class="tab-btn" data-tab="convertImage">
+                <span class="material-symbols-outlined">swap_horiz</span>
+                <span>圖片轉檔</span>
+            </button>
+            <button type="button" class="tab-btn" data-tab="convertVideo">
+                <span class="material-symbols-outlined">swap_horiz</span>
+                <span>影片轉檔</span>
+            </button>
+            <button type="button" class="tab-btn" data-tab="compressImage">
+                <span class="material-symbols-outlined">compress</span>
+                <span>圖片壓縮</span>
+            </button>
+            <button type="button" class="tab-btn" data-tab="compressVideo">
+                <span class="material-symbols-outlined">compress</span>
+                <span>影片壓縮</span>
             </button>
         </div>
 
         <!-- ====================================================================
              圖片頁籤內容
         ==================================================================== -->
-        <div class="tab-content active" id="tabImage">
+        <div class="tab-content active" id="tabImage" data-tab="image">
 
             <!-- 圖片上傳區域 -->
             <section class="upload-section" id="uploadSection">
@@ -148,7 +163,7 @@
         <!-- ====================================================================
              影片頁籤內容
         ==================================================================== -->
-        <div class="tab-content" id="tabVideo">
+        <div class="tab-content" id="tabVideo" data-tab="video">
 
             {% if not ffmpeg_ok %}
             <!-- FFmpeg 未安裝警告 -->
@@ -261,6 +276,118 @@
             </section>
 
             {% endif %}
+        </div>
+
+        <!-- ========== 圖片轉檔頁籤 ========== -->
+        <div class="tab-content" id="tabConvertImage" data-tab="convertImage">
+            <section class="convert-section">
+                <h2 class="section-title"><span class="material-symbols-outlined">image</span> 圖片轉檔</h2>
+                <p class="section-desc">將圖片轉成 PNG、JPEG、WebP、BMP 或 TIFF。支援一般圖檔與 <strong>HEIC/HEIF</strong>、<strong>相機 RAW</strong>。可多選（最多 20 張），<strong>每張可選不同輸出格式</strong>，執行前可點 × 移除。</p>
+                <div class="convert-card convert-card-multi">
+                    <input type="file" id="convertImageInput" accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.heic,.heif,.heics,.dng,.cr2,.cr3,.nef,.nrw,.arw,.orf,.rw2,.pef,.raf,.raw,.srw,.3fr,.erf,.kdc,.dcr,.mrw" class="convert-file-input" multiple>
+                    <div class="convert-file-list-wrap" id="convertImageFileListWrap" style="display: none;">
+                        <div class="convert-file-list-header">已選擇 <span id="convertImageFileCount">0</span> 張，每張可選格式，執行前可點 × 移除</div>
+                        <div class="convert-file-list" id="convertImageFileList"></div>
+                    </div>
+                    <div class="convert-options convert-options-default" id="convertImageDefaultFormatWrap">
+                        <label>新加入檔案的預設格式：</label>
+                        <select id="convertImageFormat">
+                            <option value="png">PNG</option>
+                            <option value="jpeg">JPEG</option>
+                            <option value="webp">WebP</option>
+                            <option value="bmp">BMP</option>
+                            <option value="tiff">TIFF</option>
+                        </select>
+                    </div>
+                    <button type="button" class="btn-primary" id="btnConvertImage" disabled>
+                        <span class="material-symbols-outlined">swap_horiz</span>
+                        <span id="btnConvertImageText">開始轉檔</span>
+                    </button>
+                </div>
+            </section>
+        </div>
+
+        <!-- ========== 影片轉檔頁籤 ========== -->
+        <div class="tab-content" id="tabConvertVideo" data-tab="convertVideo">
+            <section class="convert-section">
+                <h2 class="section-title"><span class="material-symbols-outlined">movie</span> 影片轉檔</h2>
+                <p class="section-desc">將影片轉成 MP4、WebM、MKV、AVI 或 MOV。可多選（最多 10 部），<strong>每部可選不同輸出格式</strong>，執行前可點 × 移除。需 FFmpeg。</p>
+                {% if not ffmpeg_ok %}
+                <p class="section-warn">FFmpeg 未安裝，無法使用影片轉檔。</p>
+                {% else %}
+                <div class="convert-card convert-card-multi">
+                    <input type="file" id="convertVideoInput" accept=".mp4,.mov,.avi,.mkv,.webm,.flv,.wmv" class="convert-file-input" multiple>
+                    <div class="convert-file-list-wrap" id="convertVideoFileListWrap" style="display: none;">
+                        <div class="convert-file-list-header">已選擇 <span id="convertVideoFileCount">0</span> 部，每部可選格式，執行前可點 × 移除</div>
+                        <div class="convert-file-list" id="convertVideoFileList"></div>
+                    </div>
+                    <div class="convert-options convert-options-default">
+                        <label>新加入檔案的預設格式：</label>
+                        <select id="convertVideoFormat">
+                            <option value="mp4">MP4</option>
+                            <option value="webm">WebM</option>
+                            <option value="mkv">MKV</option>
+                            <option value="avi">AVI</option>
+                            <option value="mov">MOV</option>
+                        </select>
+                    </div>
+                    <button type="button" class="btn-primary" id="btnConvertVideo" disabled>
+                        <span class="material-symbols-outlined">swap_horiz</span>
+                        <span id="btnConvertVideoText">開始轉檔</span>
+                    </button>
+                </div>
+                {% endif %}
+            </section>
+        </div>
+
+        <!-- ========== 圖片壓縮頁籤 ========== -->
+        <div class="tab-content" id="tabCompressImage" data-tab="compressImage">
+            <section class="convert-section">
+                <h2 class="section-title"><span class="material-symbols-outlined">image</span> 圖片壓縮</h2>
+                <p class="section-desc">縮小檔案大小。可多選（最多 20 張），<strong>每張可設品質與最大寬/高</strong>，執行前可點 × 移除。最大寬/高會預設為該圖<strong>原始寬×高</strong>，修改任一邊會<strong>自動算出等比</strong>的另一邊。</p>
+                <div class="convert-card convert-card-multi">
+                    <input type="file" id="compressImageInput" accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.heic,.heif,.heics,.dng,.cr2,.cr3,.nef,.nrw,.arw,.orf,.rw2,.pef,.raf,.raw,.srw,.3fr,.erf,.kdc,.dcr,.mrw" class="convert-file-input" multiple>
+                    <div class="convert-file-list-wrap" id="compressImageFileListWrap" style="display: none;">
+                        <div class="convert-file-list-header">已選擇 <span id="compressImageFileCount">0</span> 張，最大寬/高預設為原圖尺寸，改一邊會自動等比另一邊，執行前可點 × 移除</div>
+                        <div class="convert-file-list" id="compressImageFileList"></div>
+                    </div>
+                    <div class="convert-options convert-options-default">
+                        <label>新加入檔案的預設品質 (1–100)：</label>
+                        <input type="number" id="compressImageQuality" min="1" max="100" value="80" class="compress-quality-input" style="width:4rem;">
+                    </div>
+                    <button type="button" class="btn-primary" id="btnCompressImage" disabled>
+                        <span class="material-symbols-outlined">compress</span>
+                        <span id="btnCompressImageText">開始壓縮</span>
+                    </button>
+                </div>
+            </section>
+        </div>
+
+        <!-- ========== 影片壓縮頁籤 ========== -->
+        <div class="tab-content" id="tabCompressVideo" data-tab="compressVideo">
+            <section class="convert-section">
+                <h2 class="section-title"><span class="material-symbols-outlined">movie</span> 影片壓縮</h2>
+                <p class="section-desc">以 H.264 壓縮影片，CRF 愈小畫質愈高（18–28）。可多選（最多 10 部），<strong>每部可設不同 CRF</strong>，執行前可點 × 移除。需 FFmpeg。</p>
+                {% if not ffmpeg_ok %}
+                <p class="section-warn">FFmpeg 未安裝，無法使用影片壓縮。</p>
+                {% else %}
+                <div class="convert-card convert-card-multi">
+                    <input type="file" id="compressVideoInput" accept=".mp4,.mov,.avi,.mkv,.webm,.flv,.wmv" class="convert-file-input" multiple>
+                    <div class="convert-file-list-wrap" id="compressVideoFileListWrap" style="display: none;">
+                        <div class="convert-file-list-header">已選擇 <span id="compressVideoFileCount">0</span> 部，每部可設 CRF，執行前可點 × 移除</div>
+                        <div class="convert-file-list" id="compressVideoFileList"></div>
+                    </div>
+                    <div class="convert-options convert-options-default">
+                        <label>新加入檔案的預設 CRF (18–28)：</label>
+                        <input type="number" id="compressVideoCrf" min="18" max="28" value="23" class="compress-quality-input" style="width:4rem;">
+                    </div>
+                    <button type="button" class="btn-primary" id="btnCompressVideo" disabled>
+                        <span class="material-symbols-outlined">compress</span>
+                        <span id="btnCompressVideoText">開始壓縮</span>
+                    </button>
+                </div>
+                {% endif %}
+            </section>
         </div>
 
         <!-- ===== 批量處理進度 (圖片 & 影片共用) ===== -->
@@ -418,6 +545,6 @@
         </div>
     </footer>
 
-    <script src="/static/js/main.js"></script>
+    <script src="/static/js/main.js?v=4"></script>
 </body>
 </html>

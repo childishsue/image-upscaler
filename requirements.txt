@@ -16,6 +16,11 @@ gfpgan
 # 圖像處理（numpy 至少 1.22 才有 Python 3.10+ 輪子，避免從原始碼建置與 setuptools 錯誤）
 opencv-python
 numpy>=1.22
+# HEIC/HEIF 轉檔（轉成 JPG/PNG 等）
+Pillow
+pillow-heif
+# RAW 轉檔（相機 RAW 轉成 JPG/PNG 等）
+rawpy
 
 # PyTorch (根據您的系統選擇合適版本)
 # GPU 版本 (NVIDIA CUDA):

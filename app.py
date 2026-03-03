@@ -82,11 +82,11 @@ warnings.filterwarnings("ignore", message=".*Please install PyTorch.*")
 # ===========================
 import cv2
 import numpy as np
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from basicsr.archs.rrdbnet_arch import RRDBNet   # Real-ESRGAN 使用的 RRDB 網路架構
 from realesrgan import RealESRGANer               # Real-ESRGAN 推論封裝
 
@@ -259,6 +259,13 @@ WEIGHTS_DIR.mkdir(exist_ok=True)
 #  全域設定常數
 # ===========================
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif"}  # 支援的圖片格式
+# 轉檔專用：HEIC/HEIF、相機 RAW（需 pillow-heif / rawpy 才能轉成 JPG 等）
+HEIC_EXTENSIONS = {".heic", ".heif", ".heics"}
+RAW_EXTENSIONS = {
+    ".dng", ".cr2", ".cr3", ".nef", ".nrw", ".arw", ".orf", ".rw2", ".pef", ".raf",
+    ".raw", ".srw", ".3fr", ".erf", ".kdc", ".dcr", ".mrw", ".nef", ".nrwa",
+}
+CONVERT_ONLY_EXTENSIONS = HEIC_EXTENSIONS | RAW_EXTENSIONS  # 僅在「轉檔」時接受為輸入
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 單檔上限 20MB
 
 # ===========================
@@ -284,6 +291,11 @@ IMAGE_RESOLUTIONS = {
     "2k":    (2560, 1440),
     "4k":    (3840, 2160),
 }
+
+# 圖片轉檔支援的輸出格式（副檔名 → OpenCV 寫入參數）
+IMAGE_CONVERT_FORMATS = {".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".webp": "webp"}
+# 影片轉檔支援的輸出格式
+VIDEO_CONVERT_FORMATS = {".mp4": "mp4", ".webm": "webm", ".mkv": "mkv"}
 
 
 def check_ffmpeg():
@@ -1094,6 +1106,294 @@ def process_video_batch(batch_id: str, video_tasks: list, target: str):
 
 
 # =====================================================================
+#  HEIC / RAW 載入（轉成 JPG 等用）
+# =====================================================================
+
+def _load_image_for_convert(input_path: str, ext: str):
+    """
+    依副檔名載入圖片為 OpenCV BGR 陣列。
+    支援一般格式（cv2）、HEIC/HEIF（pillow-heif）、相機 RAW（rawpy）。
+    若格式不支援或套件未安裝，回傳 None 並可從後續錯誤訊息判斷。
+    """
+    ext = (ext or "").lower()
+    if ext in HEIC_EXTENSIONS:
+        try:
+            import pillow_heif
+            heif = pillow_heif.open_heif(input_path)
+            if len(heif) == 0:
+                return None
+            # 取第一張圖，轉成 numpy RGB（可能 8/16-bit）
+            img_pil = heif[0].to_pillow()
+            rgb = np.array(img_pil)
+            if len(rgb.shape) == 2:
+                rgb = np.stack([rgb] * 3, axis=-1)
+            if rgb.dtype == np.uint16 or (hasattr(rgb, "max") and rgb.max() > 255):
+                rgb = (np.clip(rgb, 0, 65535) >> 8).astype(np.uint8)
+            elif rgb.dtype != np.uint8:
+                rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+            return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        except Exception as e:
+            print(f"[HEIC] {e}")
+            return None
+    if ext in RAW_EXTENSIONS:
+        try:
+            import rawpy
+            with rawpy.imread(input_path) as raw:
+                rgb = raw.postprocess()
+            return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        except Exception as e:
+            print(f"[RAW] {e}")
+            return None
+    # 一般格式
+    img = cv2.imread(input_path, cv2.IMREAD_UNCHANGED)
+    return img
+
+
+# =====================================================================
+#  圖片轉檔 / 影片轉檔 / 壓縮
+# =====================================================================
+
+def process_convert_image(task_id: str, input_path: str, output_path: str, fmt: str, original_name: str):
+    """將圖片轉成指定格式（含 HEIC/RAW 轉 JPG/PNG 等），不改變尺寸。"""
+    try:
+        input_ext = Path(input_path).suffix.lower()
+        tasks_progress[task_id] = {"status": "processing", "progress": 20, "message": "正在讀取圖片..."}
+        img = _load_image_for_convert(input_path, input_ext)
+        if img is None:
+            if input_ext in HEIC_EXTENSIONS:
+                tasks_progress[task_id] = {"status": "error", "progress": 0, "message": "無法讀取 HEIC/HEIF，請確認已安裝 pillow-heif"}
+            elif input_ext in RAW_EXTENSIONS:
+                tasks_progress[task_id] = {"status": "error", "progress": 0, "message": "無法讀取 RAW，請確認已安裝 rawpy"}
+            else:
+                tasks_progress[task_id] = {"status": "error", "progress": 0, "message": "無法讀取圖片"}
+            return None
+        h, w = img.shape[:2]
+        tasks_progress[task_id] = {"status": "processing", "progress": 60, "message": "正在轉檔..."}
+        ext = Path(output_path).suffix.lower()
+        if ext in [".jpg", ".jpeg"]:
+            cv2.imwrite(output_path, img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        elif ext == ".webp":
+            cv2.imwrite(output_path, img, [cv2.IMWRITE_WEBP_QUALITY, 90])
+        elif ext == ".png":
+            cv2.imwrite(output_path, img, [cv2.IMWRITE_PNG_COMPRESSION, 3])
+        elif ext in (".bmp", ".tiff", ".tif"):
+            cv2.imwrite(output_path, img)
+        else:
+            cv2.imwrite(output_path, img)
+        file_size = os.path.getsize(output_path)
+        stem = Path(original_name).stem
+        out_ext = ext.lstrip(".")
+        download_name = f"{stem}_converted.{out_ext}"
+        result_data = {
+            "original_size": f"{w}x{h}",
+            "output_size": f"{w}x{h}",
+            "file_size": file_size,
+            "filename": os.path.basename(output_path),
+            "download_name": download_name,
+            "original_name": original_name,
+        }
+        tasks_progress[task_id] = {"status": "completed", "progress": 100, "message": "轉檔完成！", "result": result_data}
+        add_to_history(task_id, "image", original_name, result_data)
+        return output_path
+    except Exception as e:
+        safe_msg = "轉檔失敗: 內部錯誤" if (os.sep in str(e) or "/" in str(e)) else f"轉檔失敗: {e}"
+        print(f"[ERROR] convert_image task_id={task_id}: {e}")
+        tasks_progress[task_id] = {"status": "error", "progress": 0, "message": safe_msg}
+        return None
+
+
+def process_convert_batch(batch_id: str, file_tasks: list, format: str):
+    """
+    批量圖片轉檔：依序處理，支援執行前取消（status == queued 的會跳過）。
+    """
+    total = len(file_tasks)
+    completed = 0
+    failed = 0
+    cancelled = 0
+
+    for i, task in enumerate(file_tasks):
+        task_id = task["task_id"]
+        tp = tasks_progress.get(task_id, {})
+        if tp.get("status") == "cancelled":
+            cancelled += 1
+            batch_progress[batch_id]["cancelled"] = cancelled
+            continue
+
+        batch_progress[batch_id]["current_index"] = i
+        batch_progress[batch_id]["message"] = f"正在轉檔第 {i+1}/{total} 張..."
+        batch_progress[batch_id]["progress"] = int((i / total) * 100)
+
+        original_name = task.get("original_name", "")
+        result = process_convert_image(
+            task_id, task["input_path"], task["output_path"], format, original_name
+        )
+
+        if result:
+            completed += 1
+        else:
+            failed += 1
+
+        batch_progress[batch_id]["completed"] = completed
+        batch_progress[batch_id]["failed"] = failed
+
+    batch_progress[batch_id]["status"] = "completed"
+    batch_progress[batch_id]["progress"] = 100
+    parts = []
+    if completed:
+        parts.append(f"成功 {completed} 張")
+    if failed:
+        parts.append(f"失敗 {failed} 張")
+    if cancelled:
+        parts.append(f"已取消 {cancelled} 張")
+    batch_progress[batch_id]["message"] = "全部完成！" + "，".join(parts)
+
+    try:
+        zip_path = OUTPUT_DIR / f"{batch_id}_all.zip"
+        with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
+            for task in file_tasks:
+                tid = task["task_id"]
+                if tid in tasks_progress and tasks_progress[tid]["status"] == "completed":
+                    out_file = OUTPUT_DIR / tasks_progress[tid]["result"]["filename"]
+                    if out_file.exists():
+                        arcname = tasks_progress[tid]["result"].get("download_name", task["original_name"])
+                        zf.write(str(out_file), arcname)
+        batch_progress[batch_id]["zip_ready"] = True
+    except Exception:
+        batch_progress[batch_id]["zip_ready"] = False
+
+
+def process_convert_video(task_id: str, input_path: str, output_path: str, fmt: str, original_name: str):
+    """使用 FFmpeg 將影片轉成指定格式（mp4 / webm / mkv / avi / mov）。"""
+    try:
+        tasks_progress[task_id] = {"status": "processing", "progress": 10, "message": "正在轉檔..."}
+        ext = Path(output_path).suffix.lower()
+        if ext == ".webm":
+            cmd = [
+                "ffmpeg", "-i", input_path,
+                "-c:v", "libvpx-vp9", "-crf", "30", "-b:v", "0",
+                "-c:a", "libopus", "-b:a", "128k",
+                "-y", output_path
+            ]
+        else:
+            # mp4 / mkv / avi / mov：串流複製，不重新編碼
+            cmd = ["ffmpeg", "-i", input_path, "-c", "copy", "-y", output_path]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        if result.returncode != 0 or not Path(output_path).exists():
+            tasks_progress[task_id] = {"status": "error", "progress": 0, "message": "影片轉檔失敗"}
+            return None
+        file_size = os.path.getsize(output_path)
+        stem = Path(original_name).stem
+        out_ext = ext.lstrip(".")
+        download_name = f"{stem}_converted.{out_ext}"
+        result_data = {
+            "filename": os.path.basename(output_path),
+            "download_name": download_name,
+            "file_size": file_size,
+            "original_name": original_name,
+        }
+        tasks_progress[task_id] = {"status": "completed", "progress": 100, "message": "轉檔完成！", "result": result_data}
+        add_to_history(task_id, "video", original_name, result_data)
+        return output_path
+    except subprocess.TimeoutExpired:
+        tasks_progress[task_id] = {"status": "error", "progress": 0, "message": "轉檔逾時"}
+        return None
+    except Exception as e:
+        print(f"[ERROR] convert_video task_id={task_id}: {e}")
+        tasks_progress[task_id] = {"status": "error", "progress": 0, "message": "影片轉檔失敗"}
+        return None
+
+
+def process_compress_image(task_id: str, input_path: str, output_path: str, quality: int, max_width: Optional[int], max_height: Optional[int], original_name: str):
+    """壓縮圖片：可選縮小尺寸（保持比例）並依格式寫入品質參數。"""
+    try:
+        tasks_progress[task_id] = {"status": "processing", "progress": 20, "message": "正在讀取圖片..."}
+        img = cv2.imread(input_path, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            tasks_progress[task_id] = {"status": "error", "progress": 0, "message": "無法讀取圖片"}
+            return None
+        orig_h, orig_w = img.shape[:2]
+        h, w = orig_h, orig_w
+        if (max_width and max_width > 0) or (max_height and max_height > 0):
+            tasks_progress[task_id] = {"status": "processing", "progress": 50, "message": "正在縮小尺寸..."}
+            scale = 1.0
+            if max_width and w > max_width:
+                scale = min(scale, max_width / w)
+            if max_height and h > max_height:
+                scale = min(scale, max_height / h)
+            if scale < 1.0:
+                new_w, new_h = int(w * scale), int(h * scale)
+                img = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                h, w = new_h, new_w
+        tasks_progress[task_id] = {"status": "processing", "progress": 70, "message": "正在壓縮..."}
+        ext = Path(output_path).suffix.lower()
+        q = max(1, min(100, quality))
+        if ext in [".jpg", ".jpeg"]:
+            cv2.imwrite(output_path, img, [cv2.IMWRITE_JPEG_QUALITY, q])
+        elif ext == ".webp":
+            cv2.imwrite(output_path, img, [cv2.IMWRITE_WEBP_QUALITY, q])
+        elif ext == ".png":
+            comp = 9 - int((q / 100) * 8)  # 1~9
+            cv2.imwrite(output_path, img, [cv2.IMWRITE_PNG_COMPRESSION, max(1, comp)])
+        else:
+            cv2.imwrite(output_path, img)
+        file_size = os.path.getsize(output_path)
+        stem = Path(original_name).stem
+        download_name = f"{stem}_compressed{ext}"
+        result_data = {
+            "original_size": f"{orig_w}x{orig_h}",
+            "output_size": f"{w}x{h}",
+            "file_size": file_size,
+            "filename": os.path.basename(output_path),
+            "download_name": download_name,
+            "original_name": original_name,
+        }
+        tasks_progress[task_id] = {"status": "completed", "progress": 100, "message": "壓縮完成！", "result": result_data}
+        add_to_history(task_id, "image", original_name, result_data)
+        return output_path
+    except Exception as e:
+        safe_msg = "壓縮失敗: 內部錯誤" if (os.sep in str(e) or "/" in str(e)) else f"壓縮失敗: {e}"
+        print(f"[ERROR] compress_image task_id={task_id}: {e}")
+        tasks_progress[task_id] = {"status": "error", "progress": 0, "message": safe_msg}
+        return None
+
+
+def process_compress_video(task_id: str, input_path: str, output_path: str, crf: int, original_name: str):
+    """使用 FFmpeg 壓縮影片（H.264 + AAC）。"""
+    try:
+        tasks_progress[task_id] = {"status": "processing", "progress": 20, "message": "正在壓縮影片..."}
+        crf_val = max(18, min(28, crf))
+        cmd = [
+            "ffmpeg", "-i", input_path,
+            "-c:v", "libx264", "-crf", str(crf_val), "-preset", "medium",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart", "-y", output_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        if result.returncode != 0 or not Path(output_path).exists():
+            tasks_progress[task_id] = {"status": "error", "progress": 0, "message": "影片壓縮失敗"}
+            return None
+        file_size = os.path.getsize(output_path)
+        stem = Path(original_name).stem
+        download_name = f"{stem}_compressed.mp4"
+        result_data = {
+            "filename": os.path.basename(output_path),
+            "download_name": download_name,
+            "file_size": file_size,
+            "original_name": original_name,
+        }
+        tasks_progress[task_id] = {"status": "completed", "progress": 100, "message": "壓縮完成！", "result": result_data}
+        add_to_history(task_id, "video", original_name, result_data)
+        return output_path
+    except subprocess.TimeoutExpired:
+        tasks_progress[task_id] = {"status": "error", "progress": 0, "message": "壓縮逾時"}
+        return None
+    except Exception as e:
+        print(f"[ERROR] compress_video task_id={task_id}: {e}")
+        tasks_progress[task_id] = {"status": "error", "progress": 0, "message": "影片壓縮失敗"}
+        return None
+
+
+# =====================================================================
 #  API 路由
 # =====================================================================
 
@@ -1266,6 +1566,7 @@ async def get_batch_progress(batch_id: str):
         "total": bp["total"],
         "completed": bp["completed"],
         "failed": bp["failed"],
+        "cancelled": bp.get("cancelled", 0),
         "progress": bp["progress"],
         "message": bp["message"],
         "zip_ready": bp.get("zip_ready", False),
@@ -1298,6 +1599,43 @@ async def batch_download(batch_id: str):
     if not zip_path.exists():
         raise HTTPException(status_code=400, detail="ZIP 檔案尚未準備好")
     return FileResponse(path=str(zip_path), filename="upscaled_images.zip", media_type="application/zip")
+
+
+@app.get("/api/download-zip")
+async def download_zip_by_task_ids(task_ids: List[str] = Query(..., description="多個 task_id，已完成的任務會打包成 ZIP")):
+    """
+    依多個 task_id 打包下載（供轉檔多筆各別送出後一鍵下載）。
+    僅包含 status 為 completed 的任務，最多 50 筆。
+    """
+    if len(task_ids) > 50:
+        raise HTTPException(status_code=400, detail="最多 50 個 task_id")
+    import io
+    buf = io.BytesIO()
+    added = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for task_id in task_ids:
+            if not task_id or task_id not in tasks_progress:
+                continue
+            progress = tasks_progress[task_id]
+            if progress.get("status") != "completed" or "result" not in progress:
+                continue
+            filename = progress["result"].get("filename")
+            if not filename:
+                continue
+            file_path = OUTPUT_DIR / filename
+            if not file_path.exists():
+                continue
+            arcname = progress["result"].get("download_name", filename)
+            zf.write(str(file_path), arcname)
+            added += 1
+    if added == 0:
+        raise HTTPException(status_code=400, detail="沒有可打包的已完成檔案")
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=converted_images.zip"},
+    )
 
 
 @app.get("/api/preview/{task_id}")
@@ -1535,6 +1873,40 @@ async def video_batch_download(batch_id: str):
     return FileResponse(path=str(zip_path), filename="videos_upscaled.zip", media_type="application/zip")
 
 
+@app.get("/api/video/download-zip")
+async def video_download_zip_by_task_ids(task_ids: List[str] = Query(..., description="多個影片 task_id，已完成的會打包成 ZIP")):
+    """依多個影片 task_id 打包下載（供影片轉檔/壓縮多筆各別送出後一鍵下載）。最多 50 筆。"""
+    if len(task_ids) > 50:
+        raise HTTPException(status_code=400, detail="最多 50 個 task_id")
+    import io
+    buf = io.BytesIO()
+    added = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for task_id in task_ids:
+            if not task_id or task_id not in tasks_progress:
+                continue
+            progress = tasks_progress[task_id]
+            if progress.get("status") != "completed" or "result" not in progress:
+                continue
+            filename = progress["result"].get("filename")
+            if not filename:
+                continue
+            file_path = OUTPUT_DIR / filename
+            if not file_path.exists():
+                continue
+            arcname = progress["result"].get("download_name", filename)
+            zf.write(str(file_path), arcname)
+            added += 1
+    if added == 0:
+        raise HTTPException(status_code=400, detail="沒有可打包的已完成影片")
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=converted_videos.zip"},
+    )
+
+
 @app.get("/api/video/progress/{task_id}")
 async def video_progress(task_id: str):
     """查詢影片處理進度"""
@@ -1556,7 +1928,217 @@ async def video_download(task_id: str):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="檔案不存在")
     download_name = progress["result"].get("download_name", filename)
-    return FileResponse(path=str(file_path), filename=download_name, media_type="video/mp4")
+    ext = Path(filename).suffix.lower()
+    video_media_types = {".mp4": "video/mp4", ".webm": "video/webm", ".mkv": "video/x-matroska", ".avi": "video/x-msvideo", ".mov": "video/quicktime"}
+    media_type = video_media_types.get(ext, "application/octet-stream")
+    return FileResponse(path=str(file_path), filename=download_name, media_type=media_type)
+
+
+# =====================================================================
+#  圖片轉檔 / 影片轉檔 / 壓縮 API
+# =====================================================================
+
+def _get_image_convert_ext(fmt: str) -> str:
+    """將 format 參數轉成副檔名（含點）。"""
+    fmt = (fmt or "").strip().lower()
+    if fmt in ("jpg", "jpeg"):
+        return ".jpg"
+    if fmt in ("png", "webp", "bmp", "tiff", "tif"):
+        return ".tiff" if fmt == "tif" else f".{fmt}"
+    return ".png"
+
+
+@app.post("/api/convert/image")
+async def convert_image(background_tasks: BackgroundTasks, file: UploadFile = File(...), format: str = Form("png")):
+    """圖片轉檔：上傳圖片後轉成指定格式（含 HEIC/RAW 轉 JPG/PNG 等）。"""
+    safe_filename = sanitize_filename(file.filename)
+    ext = Path(safe_filename).suffix.lower()
+    allowed_for_convert = ALLOWED_EXTENSIONS | CONVERT_ONLY_EXTENSIONS
+    if ext not in allowed_for_convert:
+        raise HTTPException(status_code=400, detail=f"不支援的圖片格式: {ext}")
+    out_ext = _get_image_convert_ext(format)
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"檔案太大，最大 {MAX_FILE_SIZE // (1024*1024)}MB")
+    # HEIC/RAW 不檢查 magic bytes（格式特殊），其餘仍驗證
+    if ext not in CONVERT_ONLY_EXTENSIONS and not validate_image_magic_bytes(content):
+        raise HTTPException(status_code=400, detail="檔案內容不是有效的圖片格式")
+    task_id = str(uuid.uuid4())
+    input_path = UPLOAD_DIR / f"{task_id}{ext}"
+    with open(input_path, "wb") as f:
+        f.write(content)
+    output_path = OUTPUT_DIR / f"{task_id}_converted{out_ext}"
+    tasks_progress[task_id] = {"status": "queued", "progress": 0, "message": "排隊中..."}
+    background_tasks.add_task(process_convert_image, task_id, str(input_path), str(output_path), format, safe_filename)
+    background_tasks.add_task(cleanup_old_files)
+    background_tasks.add_task(cleanup_old_tasks)
+    return JSONResponse({"task_id": task_id, "message": "已加入轉檔佇列", "original_filename": safe_filename})
+
+
+@app.post("/api/convert/batch-image")
+async def convert_batch_image(background_tasks: BackgroundTasks, files: List[UploadFile] = File(...), format: str = Form("png")):
+    """批量圖片轉檔：多檔上傳，轉成指定格式。執行前可取消單一項目。"""
+    if len(files) > 20:
+        raise HTTPException(status_code=400, detail="一次最多 20 張")
+    allowed = ALLOWED_EXTENSIONS | CONVERT_ONLY_EXTENSIONS
+    out_ext = _get_image_convert_ext(format)
+    batch_id = str(uuid.uuid4())
+    file_tasks = []
+
+    for file in files:
+        safe_filename = sanitize_filename(file.filename)
+        ext = Path(safe_filename).suffix.lower()
+        if ext not in allowed:
+            continue
+        content = await file.read()
+        if len(content) > MAX_FILE_SIZE:
+            continue
+        if ext not in CONVERT_ONLY_EXTENSIONS and not validate_image_magic_bytes(content):
+            continue
+
+        task_id = str(uuid.uuid4())
+        input_path = UPLOAD_DIR / f"{task_id}{ext}"
+        with open(input_path, "wb") as f:
+            f.write(content)
+        output_path = OUTPUT_DIR / f"{task_id}_converted{out_ext}"
+        tasks_progress[task_id] = {"status": "queued", "progress": 0, "message": "排隊中..."}
+        file_tasks.append({
+            "task_id": task_id,
+            "input_path": str(input_path),
+            "output_path": str(output_path),
+            "original_name": safe_filename,
+        })
+
+    if not file_tasks:
+        raise HTTPException(status_code=400, detail="沒有可處理的檔案")
+
+    batch_progress[batch_id] = {
+        "status": "processing",
+        "total": len(file_tasks),
+        "completed": 0,
+        "failed": 0,
+        "cancelled": 0,
+        "progress": 0,
+        "current_index": 0,
+        "message": "準備開始轉檔...",
+        "task_ids": [t["task_id"] for t in file_tasks],
+        "original_names": {t["task_id"]: t["original_name"] for t in file_tasks},
+        "zip_ready": False,
+    }
+    background_tasks.add_task(process_convert_batch, batch_id, file_tasks, format)
+    background_tasks.add_task(cleanup_old_files)
+    background_tasks.add_task(cleanup_old_tasks)
+    return JSONResponse({
+        "batch_id": batch_id,
+        "total": len(file_tasks),
+        "task_ids": [t["task_id"] for t in file_tasks],
+        "original_names": {t["task_id"]: t["original_name"] for t in file_tasks},
+    })
+
+
+@app.post("/api/convert/batch/{batch_id}/cancel/{task_id}")
+async def convert_batch_cancel_task(batch_id: str, task_id: str):
+    """取消批次轉檔中尚未開始的項目（僅限 status 為 queued）。"""
+    if batch_id not in batch_progress:
+        raise HTTPException(status_code=404, detail="找不到該批次")
+    if task_id not in batch_progress[batch_id]["task_ids"]:
+        raise HTTPException(status_code=404, detail="該任務不在此批次中")
+    tp = tasks_progress.get(task_id, {})
+    if tp.get("status") != "queued":
+        raise HTTPException(status_code=400, detail="僅能取消尚未開始的項目")
+    tasks_progress[task_id] = {"status": "cancelled", "progress": 0, "message": "已取消"}
+    return JSONResponse({"ok": True, "message": "已取消"})
+
+
+@app.post("/api/convert/video")
+async def convert_video(background_tasks: BackgroundTasks, file: UploadFile = File(...), format: str = Form("mp4")):
+    """影片轉檔：上傳影片後轉成指定格式（mp4 / webm / mkv / avi / mov）。需 FFmpeg。"""
+    if not _FFMPEG_OK:
+        raise HTTPException(status_code=400, detail="FFmpeg 未安裝，無法轉檔")
+    safe_filename = sanitize_filename(file.filename)
+    ext = Path(safe_filename).suffix.lower()
+    if ext not in VIDEO_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"不支援的影片格式: {ext}")
+    fmt = (format or "mp4").strip().lower()
+    if fmt not in ("mp4", "webm", "mkv", "avi", "mov"):
+        fmt = "mp4"
+    out_ext = f".{fmt}"
+    content = await file.read()
+    if len(content) > MAX_VIDEO_SIZE:
+        raise HTTPException(status_code=400, detail=f"影片太大，最大 {MAX_VIDEO_SIZE // (1024*1024)}MB")
+    task_id = str(uuid.uuid4())
+    input_path = UPLOAD_DIR / f"{task_id}{ext}"
+    with open(input_path, "wb") as f:
+        f.write(content)
+    output_path = OUTPUT_DIR / f"{task_id}_converted{out_ext}"
+    tasks_progress[task_id] = {"status": "queued", "progress": 0, "message": "排隊中..."}
+    background_tasks.add_task(process_convert_video, task_id, str(input_path), str(output_path), fmt, safe_filename)
+    background_tasks.add_task(cleanup_old_files)
+    background_tasks.add_task(cleanup_old_tasks)
+    return JSONResponse({"task_id": task_id, "message": "已加入轉檔佇列", "original_filename": safe_filename})
+
+
+@app.post("/api/compress/image")
+async def compress_image(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    quality: int = Form(80),
+    max_width: Optional[int] = Form(None),
+    max_height: Optional[int] = Form(None),
+):
+    """圖片壓縮：可選品質 1–100、最大寬/高（保持比例）。"""
+    safe_filename = sanitize_filename(file.filename)
+    ext = Path(safe_filename).suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"不支援的圖片格式: {ext}")
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail=f"檔案太大，最大 {MAX_FILE_SIZE // (1024*1024)}MB")
+    if not validate_image_magic_bytes(content):
+        raise HTTPException(status_code=400, detail="檔案內容不是有效的圖片格式")
+    task_id = str(uuid.uuid4())
+    input_path = UPLOAD_DIR / f"{task_id}{ext}"
+    with open(input_path, "wb") as f:
+        f.write(content)
+    output_path = OUTPUT_DIR / f"{task_id}_compressed{ext}"
+    tasks_progress[task_id] = {"status": "queued", "progress": 0, "message": "排隊中..."}
+    background_tasks.add_task(
+        process_compress_image,
+        task_id,
+        str(input_path),
+        str(output_path),
+        quality,
+        max_width,
+        max_height,
+        safe_filename,
+    )
+    background_tasks.add_task(cleanup_old_files)
+    background_tasks.add_task(cleanup_old_tasks)
+    return JSONResponse({"task_id": task_id, "message": "已加入壓縮佇列", "original_filename": safe_filename})
+
+
+@app.post("/api/compress/video")
+async def compress_video(background_tasks: BackgroundTasks, file: UploadFile = File(...), crf: int = Form(23)):
+    """影片壓縮：H.264 壓縮，crf 18–28（愈小愈高畫質）。需 FFmpeg。"""
+    if not _FFMPEG_OK:
+        raise HTTPException(status_code=400, detail="FFmpeg 未安裝，無法壓縮影片")
+    safe_filename = sanitize_filename(file.filename)
+    ext = Path(safe_filename).suffix.lower()
+    if ext not in VIDEO_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"不支援的影片格式: {ext}")
+    content = await file.read()
+    if len(content) > MAX_VIDEO_SIZE:
+        raise HTTPException(status_code=400, detail=f"影片太大，最大 {MAX_VIDEO_SIZE // (1024*1024)}MB")
+    task_id = str(uuid.uuid4())
+    input_path = UPLOAD_DIR / f"{task_id}{ext}"
+    with open(input_path, "wb") as f:
+        f.write(content)
+    output_path = OUTPUT_DIR / f"{task_id}_compressed.mp4"
+    tasks_progress[task_id] = {"status": "queued", "progress": 0, "message": "排隊中..."}
+    background_tasks.add_task(process_compress_video, task_id, str(input_path), str(output_path), crf, safe_filename)
+    background_tasks.add_task(cleanup_old_files)
+    background_tasks.add_task(cleanup_old_tasks)
+    return JSONResponse({"task_id": task_id, "message": "已加入壓縮佇列", "original_filename": safe_filename})
 
 
 # =====================================================================
